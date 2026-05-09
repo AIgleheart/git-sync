@@ -1,0 +1,17 @@
+[Unit]
+Description=Git Stack Sync Web UI
+After=network.target
+
+[Service]
+Type=simple
+User=austin
+WorkingDirectory=/opt/git-sync
+ExecStart=/usr/bin/python3 /opt/git-sync/server.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

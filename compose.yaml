@@ -1,0 +1,25 @@
+services:
+  git-sync:
+    image: ghcr.io/aigleheart/git-sync:latest
+    container_name: git-sync
+    restart: unless-stopped
+    ports:
+      - "8585:8585"
+    environment:
+      # ── Required ────────────────────────────────────────
+      - PUID=1000                        # your host user id  (run: id YOUR_USERNAME)
+      - PGID=1000                        # your host group id (run: id YOUR_USERNAME)
+      - REPO_PATH=/repo                  # internal path — do not change
+
+      # ── Optional: branch names ───────────────────────────
+      - MAIN_BRANCH=main                 # default: main
+      - AUTOSAVE_BRANCH=autosave         # default: autosave
+
+      # ── Optional: autosave ───────────────────────────────
+      - AUTOSAVE_ENABLED=false           # set to true to enable scheduled pushes
+      - AUTOSAVE_INTERVAL=24h            # supports: 1h 6h 24h 1d 1w etc.
+
+    volumes:
+      - /path/to/your/repo:/repo                                    # <-- edit: path to your git repo
+      - /home/YOUR_USERNAME/.gitconfig:/root/.gitconfig:ro          # <-- edit: created on host in README Step 2
+      - /home/YOUR_USERNAME/.git-credentials:/root/.git-credentials:ro  # <-- edit: created on host in README Step 7

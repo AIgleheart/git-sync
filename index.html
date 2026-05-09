@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>git-sync</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f10;
+      --bg2:       #141618;
+      --bg3:       #1a1d20;
+      --border:    #2a2e32;
+      --border2:   #3a3e44;
+      --text:      #c8cdd4;
+      --text-dim:  #5a6270;
+      --text-mid:  #8892a0;
+      --green:     #4ade80;
+      --green-dim: #1a3d28;
+      --blue:      #60a5fa;
+      --blue-dim:  #1a2d44;
+      --red:       #f87171;
+      --red-dim:   #3d1a1a;
+      --amber:     #fbbf24;
+      --amber-dim: #3d3010;
+      --mono:      'JetBrains Mono', monospace;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 2rem;
+    }
+
+    .shell { width: 100%; max-width: 640px; }
+
+    .window {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 24px 64px rgba(0,0,0,.6);
+    }
+
+    /* Title bar */
+    .titlebar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: var(--bg3);
+      border-bottom: 1px solid var(--border);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-r { background: #ff5f57; }
+    .dot-y { background: #febc2e; }
+    .dot-g { background: #28c840; }
+    .title-text {
+      flex: 1;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: .08em;
+      margin-left: -44px;
+    }
+
+    .window-body { padding: 20px; }
+
+    /* Repo info bar */
+    .repo-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 14px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 10px;
+    }
+    .repo-info .label { color: var(--text-dim); font-size: 11px; letter-spacing: .06em; flex-shrink: 0; }
+    .repo-info .path  { color: var(--blue); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .branch-badge {
+      margin-left: auto;
+      font-size: 11px;
+      color: var(--green);
+      background: var(--green-dim);
+      padding: 2px 9px;
+      border-radius: 4px;
+      border: 1px solid #2a5c3a;
+      flex-shrink: 0;
+    }
+
+    /* Autosave info bar */
+    .autosave-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 14px;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 16px;
+      font-size: 11px;
+    }
+    .autosave-bar .label { color: var(--text-dim); letter-spacing: .06em; flex-shrink: 0; }
+    .autosave-bar .value { color: var(--amber); }
+    .autosave-bar .off   { color: var(--text-dim); font-style: italic; }
+    .autosave-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--amber);
+      animation: pulse 2s ease-in-out infinite;
+      flex-shrink: 0;
+    }
+    .autosave-dot.off { background: var(--text-dim); animation: none; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    /* Commit input */
+    .input-wrap { margin-bottom: 4px; }
+    .input-row {
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      transition: border-color .15s;
+    }
+    .input-row:focus-within { border-color: var(--blue); }
+    .input-row.error        { border-color: var(--red) !important; }
+
+    .prompt-symbol {
+      padding: 0 10px;
+      color: var(--green);
+      font-size: 14px;
+      background: var(--bg3);
+      border-right: 1px solid var(--border);
+      height: 38px;
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    #commit-msg {
+      flex: 1;
+      background: var(--bg2);
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 0 10px;
+      height: 38px;
+    }
+    #commit-msg::placeholder { color: var(--text-dim); }
+
+    .char-counter {
+      padding: 0 10px;
+      font-size: 11px;
+      color: var(--text-dim);
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: color .15s;
+    }
+    .char-counter.warn { color: var(--amber); }
+    .char-counter.over { color: var(--red); }
+
+    .input-hint {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin: 4px 0 12px 2px;
+      min-height: 14px;
+      transition: color .15s;
+    }
+    .input-hint.error { color: var(--red); }
+
+    /* Buttons */
+    .btn-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: .06em;
+      border-radius: 6px;
+      border: 1px solid;
+      cursor: pointer;
+      transition: opacity .15s, transform .1s;
+    }
+    .btn:active:not(:disabled) { transform: scale(0.98); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+    .btn-push { background: var(--blue-dim); border-color: #2a4a70; color: var(--blue); }
+    .btn-push:hover:not(:disabled) { background: #1e3550; }
+    .btn-pull { background: var(--green-dim); border-color: #2a5c3a; color: var(--green); }
+    .btn-pull:hover:not(:disabled) { background: #1e3d28; }
+
+    .btn svg { width: 14px; height: 14px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+
+    .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      display: none; flex-shrink: 0;
+    }
+    .running .spinner  { display: block; }
+    .running .btn-icon { display: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Log */
+    .log-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .log-label { font-size: 10px; color: var(--text-dim); letter-spacing: .1em; text-transform: uppercase; }
+
+    .status-pill {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      letter-spacing: .04em;
+      display: none;
+    }
+    .status-pill.success { display: inline-block; background: var(--green-dim); color: var(--green); border: 1px solid #2a5c3a; }
+    .status-pill.error   { display: inline-block; background: var(--red-dim);   color: var(--red);   border: 1px solid #5c2a2a; }
+
+    #log {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 14px;
+      min-height: 160px;
+      max-height: 320px;
+      overflow-y: auto;
+      font-size: 11.5px;
+      line-height: 1.7;
+      color: var(--text-mid);
+    }
+    #log::-webkit-scrollbar { width: 4px; }
+    #log::-webkit-scrollbar-track { background: transparent; }
+    #log::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+    .log-line { display: block; }
+    .log-line .ts  { color: var(--text-dim); }
+    .log-line .msg { color: var(--text); }
+    .log-line .msg.ok   { color: var(--green); }
+    .log-line .msg.err  { color: var(--red); }
+    .log-line .msg.warn { color: var(--amber); }
+    .log-empty { color: var(--text-dim); font-style: italic; }
+
+    .cursor {
+      display: inline-block;
+      width: 7px; height: 13px;
+      background: var(--green);
+      animation: blink 1s step-end infinite;
+      vertical-align: -2px;
+      margin-left: 2px;
+    }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+  </style>
+</head>
+<body>
+<div class="shell">
+  <div class="window">
+    <div class="titlebar">
+      <div class="dot dot-r"></div>
+      <div class="dot dot-y"></div>
+      <div class="dot dot-g"></div>
+      <span class="title-text">git-sync</span>
+    </div>
+    <div class="window-body">
+
+      <!-- Repo info -->
+      <div class="repo-info">
+        <span class="label">REPO</span>
+        <span class="path" id="repo-path">—</span>
+        <span class="branch-badge" id="main-branch">⎇ main</span>
+      </div>
+
+      <!-- Autosave status -->
+      <div class="autosave-bar">
+        <div class="autosave-dot off" id="autosave-dot"></div>
+        <span class="label">AUTOSAVE</span>
+        <span id="autosave-label" class="off">disabled</span>
+      </div>
+
+      <!-- Commit message input -->
+      <div class="input-wrap">
+        <div class="input-row" id="input-row">
+          <span class="prompt-symbol">$</span>
+          <input id="commit-msg" type="text" maxlength="250"
+                 placeholder="commit message (required for push)"
+                 autocomplete="off" spellcheck="false">
+          <span class="char-counter" id="char-counter">0/250</span>
+        </div>
+        <div class="input-hint" id="input-hint">↵ enter to push</div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="btn-row">
+        <button class="btn btn-push" id="btn-push" onclick="runAction('push')">
+          <div class="spinner"></div>
+          <svg class="btn-icon" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+          PUSH TO GITHUB
+        </button>
+        <button class="btn btn-pull" id="btn-pull" onclick="runAction('pull')">
+          <div class="spinner"></div>
+          <svg class="btn-icon" viewBox="0 0 24 24"><path d="M12 5v14M19 12l-7 7-7-7"/></svg>
+          PULL FROM GITHUB
+        </button>
+      </div>
+
+      <!-- Log output -->
+      <div class="log-header">
+        <span class="log-label">output</span>
+        <span class="status-pill" id="status-pill"></span>
+      </div>
+      <div id="log"><span class="log-empty">Ready.<span class="cursor"></span></span></div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const MAX_LEN = 250;
+  const WARN_AT = 200;
+  let running = false;
+
+  // -------------------------------------------------------
+  // Load status from server on page load
+  // -------------------------------------------------------
+  async function loadStatus() {
+    try {
+      const res = await fetch('/status');
+      const data = await res.json();
+
+      // Repo path — comes from env inside container, reflected via /status
+      const pathEl = document.getElementById('repo-path');
+      pathEl.textContent = data.repo_path || '/repo';
+
+      // Main branch badge
+      document.getElementById('main-branch').textContent = '⎇ ' + (data.main_branch || 'main');
+
+      // Autosave
+      const dot   = document.getElementById('autosave-dot');
+      const label = document.getElementById('autosave-label');
+      if (data.autosave_enabled) {
+        dot.classList.remove('off');
+        label.classList.remove('off');
+        label.classList.add('value');
+        label.textContent = `every ${data.autosave_interval} → ${data.autosave_branch}`;
+      }
+    } catch (e) {
+      console.warn('Could not load /status:', e);
+    }
+  }
+
+  // -------------------------------------------------------
+  // Character counter
+  // -------------------------------------------------------
+  const msgInput   = document.getElementById('commit-msg');
+  const counter    = document.getElementById('char-counter');
+  const inputRow   = document.getElementById('input-row');
+  const inputHint  = document.getElementById('input-hint');
+
+  msgInput.addEventListener('input', () => {
+    const len = msgInput.value.length;
+    counter.textContent = `${len}/${MAX_LEN}`;
+    counter.className = 'char-counter' + (len >= MAX_LEN ? ' over' : len >= WARN_AT ? ' warn' : '');
+    inputRow.classList.remove('error');
+    inputHint.className = 'input-hint';
+    inputHint.textContent = '↵ enter to push';
+  });
+
+  // -------------------------------------------------------
+  // Log helpers
+  // -------------------------------------------------------
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function lineClass(msg) {
+    if (msg.startsWith('✓'))                                           return 'ok';
+    if (msg.startsWith('✗') || /error|failed/i.test(msg))             return 'err';
+    if (/warning|warn|timed out/i.test(msg))                          return 'warn';
+    return '';
+  }
+
+  function appendLine(raw) {
+    const log = document.getElementById('log');
+    const m   = raw.match(/^\[([^\]]+)\] (.+)$/);
+    const ts  = m ? m[1] : '';
+    const msg = m ? m[2] : raw;
+    const cls = lineClass(msg);
+    const span = document.createElement('span');
+    span.className = 'log-line';
+    span.innerHTML = `<span class="ts">[${escHtml(ts)}]</span> <span class="msg ${cls}">${escHtml(msg)}</span>`;
+    log.appendChild(span);
+    log.scrollTop = log.scrollHeight;
+  }
+
+  // -------------------------------------------------------
+  // UI state
+  // -------------------------------------------------------
+  function setRunning(active) {
+    running = active;
+    ['btn-push','btn-pull'].forEach(id => {
+      const b = document.getElementById(id);
+      b.disabled = active;
+      b.classList.toggle('running', active);
+    });
+  }
+
+  // -------------------------------------------------------
+  // Run action
+  // -------------------------------------------------------
+  async function runAction(action) {
+    if (running) return;
+
+    const commitMsg = msgInput.value.trim();
+
+    // Client-side validation
+    if (action === 'push' && !commitMsg) {
+      inputRow.classList.add('error');
+      inputHint.className = 'input-hint error';
+      inputHint.textContent = 'Commit message is required.';
+      msgInput.focus();
+      return;
+    }
+
+    if (action === 'push' && commitMsg.length > MAX_LEN) {
+      inputRow.classList.add('error');
+      inputHint.className = 'input-hint error';
+      inputHint.textContent = `Commit message exceeds ${MAX_LEN} character limit.`;
+      return;
+    }
+
+    // Reset log and status
+    document.getElementById('log').innerHTML = '';
+    const pill = document.getElementById('status-pill');
+    pill.className = 'status-pill';
+    pill.textContent = '';
+    inputRow.classList.remove('error');
+    inputHint.className = 'input-hint';
+    inputHint.textContent = '↵ enter to push';
+
+    setRunning(true);
+
+    const params = action === 'push' ? `?msg=${encodeURIComponent(commitMsg)}` : '';
+    const es = new EventSource(`/run/${action}${params}`);
+
+    es.onmessage = (e) => {
+      const data = JSON.parse(e.data);
+      if (data.line !== undefined) appendLine(data.line);
+      if (data.done) {
+        es.close();
+        setRunning(false);
+        pill.className = `status-pill ${data.status}`;
+        pill.textContent = data.status === 'success' ? '✓ success' : '✗ failed';
+        if (data.status === 'success' && action === 'push') {
+          msgInput.value = '';
+          counter.textContent = `0/${MAX_LEN}`;
+          counter.className = 'char-counter';
+        }
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      setRunning(false);
+      appendLine('[error] Connection lost.');
+      pill.className = 'status-pill error';
+      pill.textContent = '✗ failed';
+    };
+  }
+
+  // Enter key triggers push
+  msgInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') runAction('push');
+  });
+
+  // Load config on startup
+  loadStatus();
+</script>
+</body>
+</html>
