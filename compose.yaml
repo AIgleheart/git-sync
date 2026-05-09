@@ -3,23 +3,23 @@ services:
     image: ghcr.io/aigleheart/git-sync:latest
     container_name: git-sync
     restart: unless-stopped
+    user: "1000:1000"               # <-- replace with your uid:gid (run: id YOUR_USERNAME)
     ports:
-      - "8585:8585"
+      - "8585:8585"                 # change left side if 8585 conflicts
     environment:
-      # ── Required ────────────────────────────────────────
-      - PUID=1000                        # your host user id  (run: id YOUR_USERNAME)
-      - PGID=1000                        # your host group id (run: id YOUR_USERNAME)
-      - REPO_PATH=/repo                  # internal path — do not change
+      # ── Required ────────────────────────────────────────────────────────────
+      - REPO_DISPLAY_PATH=/mnt/docker/dockge/stacks   # <-- your host repo path (display only)
+      - HOME=/home/YOUR_USERNAME                       # <-- your host home directory
 
-      # ── Optional: branch names ───────────────────────────
-      - MAIN_BRANCH=main                 # default: main
-      - AUTOSAVE_BRANCH=autosave         # default: autosave
+      # ── Optional: branch names (defaults shown) ──────────────────────────
+      - MAIN_BRANCH=main
+      - AUTOSAVE_BRANCH=autosave
 
-      # ── Optional: autosave ───────────────────────────────
-      - AUTOSAVE_ENABLED=false           # set to true to enable scheduled pushes
-      - AUTOSAVE_INTERVAL=24h            # supports: 1h 6h 24h 1d 1w etc.
+      # ── Optional: autosave ───────────────────────────────────────────────
+      - AUTOSAVE_ENABLED=false
+      - AUTOSAVE_INTERVAL=24h       # supports: 1h 6h 12h 24h 1d 1w 2w etc.
 
     volumes:
-      - /path/to/your/repo:/repo                                    # <-- edit: path to your git repo
-      - /home/YOUR_USERNAME/.gitconfig:/root/.gitconfig:ro          # <-- edit: created on host in README Step 2
-      - /home/YOUR_USERNAME/.git-credentials:/root/.git-credentials:ro  # <-- edit: created on host in README Step 7
+      - /mnt/docker/dockge/stacks:/repo                                       # <-- edit left side: your host repo path
+      - /home/YOUR_USERNAME/.gitconfig:/home/YOUR_USERNAME/.gitconfig:ro      # <-- edit: your host username
+      - /home/YOUR_USERNAME/.git-credentials:/home/YOUR_USERNAME/.git-credentials:ro  # <-- edit: your host username

@@ -3,6 +3,7 @@
 import subprocess
 import threading
 import os
+import re
 import json
 import time
 import logging
@@ -12,9 +13,11 @@ from flask import Flask, Response, request, send_from_directory
 # Config
 # -------------------------------------------------------
 SCRIPT_PATH      = "/usr/local/bin/git-sync.sh"
+REPO_PATH        = "/repo"          # internal mount point — hardcoded, never changes
+DISPLAY_PATH     = os.environ.get("REPO_DISPLAY_PATH", "")
 MAX_COMMIT_LEN   = 250
 PORT             = 8585
-STREAM_TIMEOUT   = 70   # seconds — slightly longer than the 60s bash timeout
+STREAM_TIMEOUT   = 70               # slightly longer than the 60s bash timeout
 
 AUTOSAVE_ENABLED  = os.environ.get("AUTOSAVE_ENABLED", "false").lower() == "true"
 AUTOSAVE_INTERVAL = os.environ.get("AUTOSAVE_INTERVAL", "24h")
@@ -24,6 +27,9 @@ MAIN_BRANCH       = os.environ.get("MAIN_BRANCH", "main")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+# Suppress Flask dev server banner
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
 app = Flask(__name__, static_folder=None)
 
 # Server-side in-progress lock
@@ -32,7 +38,48 @@ _running = False
 
 
 # -------------------------------------------------------
-# Interval parser — supports 1h, 6h, 24h, 1w, 2w etc.
+# Git repo introspection
+# -------------------------------------------------------
+def get_remote_repo():
+    """Parse owner/repo from .git/config remote origin url.
+    Handles both https://github.com/owner/repo.git
+    and git@github.com:owner/repo.git formats.
+    Returns 'owner/repo' string or None if unreadable.
+    """
+    git_config = os.path.join(REPO_PATH, ".git", "config")
+    try:
+        with open(git_config, "r") as f:
+            content = f.read()
+        # HTTPS format
+        m = re.search(r'url\s*=\s*https://[^/]+/([^/\s]+/[^/\s]+?)(?:\.git)?\s*$', content, re.MULTILINE)
+        if m:
+            return m.group(1)
+        # SSH format
+        m = re.search(r'url\s*=\s*git@[^:]+:([^/\s]+/[^\s]+?)(?:\.git)?\s*$', content, re.MULTILINE)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def get_current_branch():
+    """Read active branch name from .git/HEAD.
+    Returns branch name string or falls back to MAIN_BRANCH env var.
+    """
+    head_file = os.path.join(REPO_PATH, ".git", "HEAD")
+    try:
+        with open(head_file, "r") as f:
+            content = f.read().strip()
+        if content.startswith("ref: refs/heads/"):
+            return content[len("ref: refs/heads/"):]
+    except Exception:
+        pass
+    return MAIN_BRANCH
+
+
+# -------------------------------------------------------
+# Interval parser — supports 1h, 6h, 24h, 1d, 1w, 2w etc.
 # -------------------------------------------------------
 def parse_interval(s):
     s = s.strip().lower()
@@ -45,6 +92,19 @@ def parse_interval(s):
     if s.endswith("m"):
         return int(s[:-1]) * 60
     raise ValueError(f"Unknown interval format: {s}")
+
+
+# -------------------------------------------------------
+# Credential lock warning filter
+# -------------------------------------------------------
+SUPPRESSED_PATTERNS = [
+    "unable to get credential storage lock",
+    "credential storage lock",
+]
+
+def should_suppress(line):
+    low = line.lower()
+    return any(p in low for p in SUPPRESSED_PATTERNS)
 
 
 # -------------------------------------------------------
@@ -67,6 +127,7 @@ def stream_script(action, commit_msg=""):
             cmd.append(commit_msg)
 
         env = os.environ.copy()
+        env["REPO_PATH"]       = REPO_PATH
         env["MAIN_BRANCH"]     = MAIN_BRANCH
         env["AUTOSAVE_BRANCH"] = AUTOSAVE_BRANCH
 
@@ -81,7 +142,9 @@ def stream_script(action, commit_msg=""):
             )
             try:
                 for line in proc.stdout:
-                    yield f"data: {json.dumps({'line': line.rstrip()})}\n\n"
+                    line = line.rstrip()
+                    if not should_suppress(line):
+                        yield f"data: {json.dumps({'line': line})}\n\n"
                 proc.wait(timeout=STREAM_TIMEOUT)
             except subprocess.TimeoutExpired:
                 proc.kill()
@@ -105,12 +168,10 @@ def stream_script(action, commit_msg=""):
 # -------------------------------------------------------
 def autosave_worker(interval_seconds):
     log.info(f"Autosave enabled — interval: {AUTOSAVE_INTERVAL}, branch: {AUTOSAVE_BRANCH}")
-    # Wait one full interval before first run so startup isn't noisy
     time.sleep(interval_seconds)
     while True:
         log.info("Autosave: running scheduled push...")
         try:
-            # Consume the generator fully to actually run the script
             for _ in stream_script("autosave"):
                 pass
         except Exception as e:
@@ -129,10 +190,11 @@ def index():
 
 @app.route("/status")
 def status():
-    """Expose config to the UI."""
+    """Expose repo info and runtime config to the UI."""
     return {
-        "repo_path":         os.environ.get("REPO_PATH", "/repo"),
-        "main_branch":       MAIN_BRANCH,
+        "display_path":      DISPLAY_PATH or REPO_PATH,
+        "remote_repo":       get_remote_repo(),
+        "current_branch":    get_current_branch(),
         "autosave_enabled":  AUTOSAVE_ENABLED,
         "autosave_interval": AUTOSAVE_INTERVAL if AUTOSAVE_ENABLED else None,
         "autosave_branch":   AUTOSAVE_BRANCH   if AUTOSAVE_ENABLED else None,
@@ -162,7 +224,7 @@ def run_action(action):
         stream_script(action, commit_msg),
         mimetype="text/event-stream",
         headers={
-            "Cache-Control":    "no-cache",
+            "Cache-Control":     "no-cache",
             "X-Accel-Buffering": "no",
         },
     )
@@ -171,18 +233,20 @@ def run_action(action):
 # -------------------------------------------------------
 # Startup
 # -------------------------------------------------------
-if __name__ == "__main__":
+def start_autosave():
     if AUTOSAVE_ENABLED:
         try:
             interval = parse_interval(AUTOSAVE_INTERVAL)
         except ValueError as e:
             log.error(f"Invalid AUTOSAVE_INTERVAL '{AUTOSAVE_INTERVAL}': {e}. Autosave disabled.")
-            interval = None
-
-        if interval:
-            t = threading.Thread(target=autosave_worker, args=(interval,), daemon=True)
-            t.start()
+            return
+        t = threading.Thread(target=autosave_worker, args=(interval,), daemon=True)
+        t.start()
     else:
         log.info("Autosave disabled.")
 
+
+start_autosave()
+
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=PORT, debug=False)

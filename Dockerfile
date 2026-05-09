@@ -1,4 +1,5 @@
 FROM python:3.12-slim
+LABEL org.opencontainers.image.source="https://github.com/aigleheart/git-sync"
 
 # Install git (used by git-sync.sh at runtime)
 # Credentials, identity, and repo initialization are handled on the host
