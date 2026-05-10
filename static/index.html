@@ -79,7 +79,7 @@
 
     .window-body { padding: 20px; }
 
-    /* Shared info bar base */
+    /* Shared info bar */
     .info-bar {
       display: flex;
       align-items: center;
@@ -91,10 +91,8 @@
       font-size: 11px;
       min-width: 0;
     }
-    .info-bar + .info-bar { margin-top: 8px; }
-    .info-bar:last-of-type { margin-bottom: 16px; }
 
-    /* Icons — stroke based */
+    /* Stroke icons */
     .icon {
       width: 13px; height: 13px;
       stroke: var(--text-dim);
@@ -119,12 +117,7 @@
       white-space: nowrap;
       min-width: 0;
     }
-
-    .repo-arrow {
-      color: var(--text-dim);
-      flex-shrink: 0;
-    }
-
+    .repo-arrow { color: var(--text-dim); flex-shrink: 0; }
     .repo-remote {
       color: var(--blue);
       overflow: hidden;
@@ -133,7 +126,7 @@
       min-width: 0;
     }
 
-    /* Branch badge — used in both bars */
+    /* Green branch badge (main) */
     .branch-badge {
       margin-left: auto;
       font-size: 11px;
@@ -145,7 +138,18 @@
       flex-shrink: 0;
     }
 
-    /* Autosave specific */
+    /* Amber branch badge (autosave) */
+    .branch-badge-amber {
+      font-size: 11px;
+      color: var(--amber);
+      background: var(--amber-dim);
+      padding: 2px 9px;
+      border-radius: 4px;
+      border: 1px solid #5c4a10;
+      flex-shrink: 0;
+    }
+
+    /* Autosave dot */
     .autosave-dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: var(--amber);
@@ -155,26 +159,28 @@
     .autosave-dot.off { background: var(--text-dim); animation: none; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
 
-    .as-label { color: var(--text-dim); letter-spacing: .06em; flex-shrink: 0; }
+    .as-label   { color: var(--text-dim); letter-spacing: .06em; flex-shrink: 0; }
     .as-interval { color: var(--amber); flex-shrink: 0; }
     .as-interval.off { color: var(--text-dim); font-style: italic; }
 
-    /* Autosave branch badge — amber tint */
-    .branch-badge-amber {
-      margin-left: auto;
-      font-size: 11px;
-      color: var(--amber);
-      background: var(--amber-dim);
-      padding: 2px 9px;
-      border-radius: 4px;
-      border: 1px solid #5c4a10;
+    /* Last autosave timestamp — dim separator + time */
+    .as-last {
+      color: var(--text-dim);
+      font-size: 10px;
       flex-shrink: 0;
-      display: none;
+      white-space: nowrap;
     }
-    .branch-badge-amber.visible { display: inline-block; }
+    .as-last span { color: var(--text-mid); }
+
+    /* Divider between log and autosave bar */
+    .section-divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 16px 0 12px;
+    }
 
     /* Commit input */
-    .input-wrap { margin-bottom: 4px; }
+    .input-wrap { margin: 12px 0 4px; }
     .input-row {
       display: flex;
       align-items: center;
@@ -226,7 +232,6 @@
       color: var(--text-dim);
       margin: 4px 0 12px 2px;
       min-height: 14px;
-      transition: color .15s;
     }
     .input-hint.error { color: var(--red); }
 
@@ -237,7 +242,6 @@
       gap: 10px;
       margin-bottom: 20px;
     }
-
     .btn {
       display: flex;
       align-items: center;
@@ -328,6 +332,10 @@
       margin-left: 2px;
     }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+    /* Autosave bar hidden by default — only shown when enabled */
+    .autosave-section { display: none; }
+    .autosave-section.visible { display: block; }
   </style>
 </head>
 <body>
@@ -343,9 +351,10 @@
 
     <div class="window-body">
 
-      <!-- Row 1: local path → GitHub remote → branch badge -->
+      <!-- ── MANUAL / MAIN GROUP ─────────────────────────────── -->
+
+      <!-- Repo info: local path → GitHub remote → branch -->
       <div class="info-bar">
-        <!-- Folder icon -->
         <svg class="icon" viewBox="0 0 24 24">
           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
         </svg>
@@ -353,7 +362,6 @@
 
         <span class="repo-arrow">→</span>
 
-        <!-- GitHub mark -->
         <svg class="gh-icon" viewBox="0 0 16 16">
           <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38
                    0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13
@@ -366,29 +374,10 @@
         </svg>
         <span class="repo-remote" id="repo-remote">—</span>
 
-        <!-- Branch badge — populated from current_branch (read from .git/HEAD) -->
         <span class="branch-badge" id="branch-badge">⎇ main</span>
       </div>
 
-      <!-- Row 2: autosave status → interval → autosave branch badge -->
-      <div class="info-bar">
-        <div class="autosave-dot off" id="autosave-dot"></div>
-        <span class="as-label">AUTOSAVE</span>
-        <span class="as-interval off" id="autosave-interval">disabled</span>
-
-        <!-- Git branch icon -->
-        <svg class="icon" id="autosave-branch-icon" style="display:none; margin-left:4px;" viewBox="0 0 24 24">
-          <line x1="6" y1="3" x2="6" y2="15"/>
-          <circle cx="18" cy="6" r="3"/>
-          <circle cx="6" cy="18" r="3"/>
-          <circle cx="6" cy="6" r="3"/>
-          <path d="M18 9a9 9 0 0 1-9 9"/>
-        </svg>
-        <!-- Autosave branch badge — amber, only shown when autosave enabled -->
-        <span class="branch-badge-amber" id="autosave-branch-badge">⎇ autosave</span>
-      </div>
-
-      <!-- Commit message input -->
+      <!-- Commit input -->
       <div class="input-wrap">
         <div class="input-row" id="input-row">
           <span class="prompt-symbol">$</span>
@@ -421,6 +410,31 @@
       </div>
       <div id="log"><span class="log-empty">Ready.<span class="cursor"></span></span></div>
 
+      <!-- ── AUTOSAVE GROUP (hidden when disabled) ───────────── -->
+      <div class="autosave-section" id="autosave-section">
+        <hr class="section-divider">
+        <div class="info-bar">
+          <div class="autosave-dot" id="autosave-dot"></div>
+          <span class="as-label">AUTOSAVE</span>
+          <span class="as-interval" id="autosave-interval">—</span>
+
+          <!-- Last autosave timestamp — hidden until first run -->
+          <span class="as-last" id="last-autosave" style="display:none;">
+            · last <span id="last-autosave-time">—</span>
+          </span>
+
+          <!-- Branch icon + amber badge -->
+          <svg class="icon" style="margin-left:auto;" viewBox="0 0 24 24">
+            <line x1="6" y1="3" x2="6" y2="15"/>
+            <circle cx="18" cy="6" r="3"/>
+            <circle cx="6" cy="18" r="3"/>
+            <circle cx="6" cy="6" r="3"/>
+            <path d="M18 9a9 9 0 0 1-9 9"/>
+          </svg>
+          <span class="branch-badge-amber" id="autosave-branch-badge">⎇ autosave</span>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -430,44 +444,47 @@
   const WARN_AT = 200;
   let running = false;
 
+  // Poll /status every 30s to pick up last_autosave updates without a page refresh
+  const STATUS_POLL_MS = 30000;
+
   // -------------------------------------------------------
-  // Load status from server on page load
+  // Load / poll status
   // -------------------------------------------------------
   async function loadStatus() {
     try {
       const res  = await fetch('/status');
       const data = await res.json();
 
-      // Local display path (REPO_DISPLAY_PATH env var, falls back to /repo)
+      // Repo info bar
       document.getElementById('repo-local').textContent =
         data.display_path || '/repo';
-
-      // Remote repo parsed from .git/config
       document.getElementById('repo-remote').textContent =
         data.remote_repo || 'not configured';
-
-      // Current branch read live from .git/HEAD
       document.getElementById('branch-badge').textContent =
         '⎇ ' + (data.current_branch || 'main');
 
-      // Autosave row
-      const dot            = document.getElementById('autosave-dot');
-      const intervalLabel  = document.getElementById('autosave-interval');
-      const branchIcon     = document.getElementById('autosave-branch-icon');
-      const branchBadge    = document.getElementById('autosave-branch-badge');
-
+      // Autosave section
       if (data.autosave_enabled) {
-        dot.classList.remove('off');
-        intervalLabel.classList.remove('off');
-        intervalLabel.textContent = `every ${data.autosave_interval}`;
-        branchIcon.style.display  = 'block';
-        branchBadge.classList.add('visible');
-        branchBadge.textContent   = '⎇ ' + (data.autosave_branch || 'autosave');
+        document.getElementById('autosave-section').classList.add('visible');
+        document.getElementById('autosave-interval').textContent =
+          `every ${data.autosave_interval}`;
+        document.getElementById('autosave-branch-badge').textContent =
+          '⎇ ' + (data.autosave_branch || 'autosave');
+
+        // Last autosave timestamp
+        if (data.last_autosave) {
+          document.getElementById('last-autosave-time').textContent = data.last_autosave;
+          document.getElementById('last-autosave').style.display = 'inline';
+        }
       }
     } catch (e) {
       console.warn('Could not load /status:', e);
     }
   }
+
+  // Initial load + recurring poll
+  loadStatus();
+  setInterval(loadStatus, STATUS_POLL_MS);
 
   // -------------------------------------------------------
   // Character counter
@@ -589,8 +606,6 @@
   msgInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') runAction('push');
   });
-
-  loadStatus();
 </script>
 </body>
 </html>

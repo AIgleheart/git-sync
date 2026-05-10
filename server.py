@@ -7,6 +7,7 @@ import re
 import json
 import time
 import logging
+from datetime import datetime
 from flask import Flask, Response, request, send_from_directory
 
 # -------------------------------------------------------
@@ -18,6 +19,7 @@ DISPLAY_PATH     = os.environ.get("REPO_DISPLAY_PATH", "")
 MAX_COMMIT_LEN   = 250
 PORT             = 8585
 STREAM_TIMEOUT   = 70               # slightly longer than the 60s bash timeout
+AUTOSAVE_STARTUP_DELAY = 30         # seconds before first autosave run on startup
 
 AUTOSAVE_ENABLED  = os.environ.get("AUTOSAVE_ENABLED", "false").lower() == "true"
 AUTOSAVE_INTERVAL = os.environ.get("AUTOSAVE_INTERVAL", "24h")
@@ -33,8 +35,9 @@ logging.getLogger('werkzeug').setLevel(logging.ERROR)
 app = Flask(__name__, static_folder=None)
 
 # Server-side in-progress lock
-_lock    = threading.Lock()
-_running = False
+_lock          = threading.Lock()
+_running       = False
+_last_autosave = None               # set after each successful autosave run
 
 
 # -------------------------------------------------------
@@ -166,16 +169,38 @@ def stream_script(action, commit_msg=""):
 # -------------------------------------------------------
 # Autosave scheduler
 # -------------------------------------------------------
+def run_autosave():
+    """Run a single autosave and update _last_autosave on success."""
+    global _last_autosave
+    log.info("Autosave: running scheduled push...")
+    success = True
+    try:
+        for chunk in stream_script("autosave"):
+            # check for error status in the final done event
+            try:
+                data = json.loads(chunk.replace("data: ", "").strip())
+                if data.get("done") and data.get("status") == "error":
+                    success = False
+            except Exception:
+                pass
+    except Exception as e:
+        log.error(f"Autosave error: {e}")
+        success = False
+
+    if success:
+        _last_autosave = datetime.now().strftime("%Y-%m-%d %H:%M")
+        log.info(f"Autosave complete at {_last_autosave}")
+    else:
+        log.warning("Autosave finished with errors — last autosave time not updated")
+
+
 def autosave_worker(interval_seconds):
     log.info(f"Autosave enabled — interval: {AUTOSAVE_INTERVAL}, branch: {AUTOSAVE_BRANCH}")
-    time.sleep(interval_seconds)
+    log.info(f"First autosave run in {AUTOSAVE_STARTUP_DELAY} seconds...")
+    time.sleep(AUTOSAVE_STARTUP_DELAY)
+
     while True:
-        log.info("Autosave: running scheduled push...")
-        try:
-            for _ in stream_script("autosave"):
-                pass
-        except Exception as e:
-            log.error(f"Autosave error: {e}")
+        run_autosave()
         time.sleep(interval_seconds)
 
 
@@ -198,6 +223,7 @@ def status():
         "autosave_enabled":  AUTOSAVE_ENABLED,
         "autosave_interval": AUTOSAVE_INTERVAL if AUTOSAVE_ENABLED else None,
         "autosave_branch":   AUTOSAVE_BRANCH   if AUTOSAVE_ENABLED else None,
+        "last_autosave":     _last_autosave,
     }
 
 
